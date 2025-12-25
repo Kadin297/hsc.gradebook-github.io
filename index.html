@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hudson Schooling Corp | Secure Portal</title>
+    <style>
+        :root { --primary: #2c3e50; --accent: #3498db; --bg: #f4f7f6; --error: #e74c3c; --success: #27ae60; }
+        body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); margin: 0; }
+        
+        /* Login UI */
+        #login-overlay { position: fixed; inset: 0; background: var(--primary); display: flex; justify-content: center; align-items: center; z-index: 1000; }
+        .login-card { background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); width: 320px; text-align: center; }
+        .login-card input { width: 100%; padding: 12px; margin: 8px 0; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box; }
+        .login-card button { width: 100%; padding: 12px; background: var(--accent); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; margin-top: 10px; }
+        #err-msg { color: var(--error); font-size: 0.85rem; margin-bottom: 10px; display: none; }
+
+        /* Gradebook UI */
+        #main-content { display: none; padding: 20px; }
+        .container { max-width: 1100px; margin: 0 auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 2px 15px rgba(0,0,0,0.05); }
+        header { border-bottom: 2px solid #eee; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: flex-end; padding-bottom: 15px; }
+        h1 { color: var(--primary); margin: 0; font-size: 22px; text-transform: uppercase; letter-spacing: 1px; }
+        
+        table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+        th { background: #f8f9fa; color: var(--primary); text-align: left; padding: 15px; border-bottom: 2px solid #dee2e6; }
+        td { padding: 8px; border-bottom: 1px solid #eee; }
+        
+        .grade-input { width: 95%; padding: 10px; border: 1px solid #eee; border-radius: 4px; transition: 0.2s; }
+        .grade-input:focus { border-color: var(--accent); outline: none; background: #f0f8ff; }
+        
+        .status { font-size: 0.75rem; color: var(--success); font-weight: 600; padding: 5px 10px; background: #e8f5e9; border-radius: 20px; }
+        .btn { padding: 10px 20px; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; transition: 0.2s; }
+        .btn-add { background: var(--success); color: white; }
+        .btn-clear { background: #fdf2f2; color: var(--error); }
+        .btn-logout { background: #eee; color: #666; }
+        .controls { display: flex; justify-content: space-between; align-items: center; margin-top: 20px; }
+    </style>
+</head>
+<body>
+
+<div id="login-overlay">
+    <div class="login-card">
+        <h1>Hudson Portal</h1>
+        <p style="color: #666; font-size: 0.9rem;">Authorized Staff Only</p>
+        <div id="err-msg">Incorrect credentials</div>
+        <input type="text" id="username" placeholder="Username">
+        <input type="password" id="password" placeholder="Password">
+        <button onclick="handleLogin()">Login</button>
+    </div>
+</div>
+
+<div id="main-content">
+    <div class="container">
+        <header>
+            <div>
+                <h1>Hudson Schooling Corp</h1>
+                <span id="save-indicator" class="status">✓ System Ready</span>
+            </div>
+            <button class="btn btn-logout" onclick="logout()">Logout</button>
+        </header>
+
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 25%;">Student Name</th>
+                    <th style="width: 20%;">Subject</th>
+                    <th style="width: 15%;">Grade (%)</th>
+                    <th>Teacher Notes</th>
+                </tr>
+            </thead>
+            <tbody id="tableBody"></tbody>
+        </table>
+
+        <div class="controls">
+            <button class="btn btn-add" onclick="addRow()">+ Add Student Row</button>
+            <button class="btn btn-clear" onclick="clearAll()">Clear All Records</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    const AUTH = { u: 'admin', p: '2132012kkKK' };
+    let saveTimeout = null;
+
+    // --- SECURITY & LOGIN ---
+    function handleLogin() {
+        const u = document.getElementById('username').value;
+        const p = document.getElementById('password').value;
+        if (u === AUTH.u && p === AUTH.p) {
+            sessionStorage.setItem('hudson_session', 'active');
+            initApp();
+        } else {
+            document.getElementById('err-msg').style.display = 'block';
+        }
+    }
+
+    function logout() {
+        sessionStorage.removeItem('hudson_session');
+        location.reload();
+    }
+
+    window.onload = () => {
+        if (sessionStorage.getItem('hudson_session') === 'active') initApp();
+    };
+
+    // --- CORE LOGIC ---
+    function initApp() {
+        document.getElementById('login-overlay').style.display = 'none';
+        document.getElementById('main-content').style.display = 'block';
+        loadData();
+    }
+
+    function addRow(data = {name:'', sub:'', grade:'', note:''}) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td><input type="text" class="grade-input s-name" value="${data.name}" placeholder="Full Name"></td>
+            <td><input type="text" class="grade-input s-sub" value="${data.sub}" placeholder="e.g. Algebra"></td>
+            <td><input type="number" class="grade-input s-grade" value="${data.grade}" min="0" max="100" placeholder="0"></td>
+            <td><input type="text" class="grade-input s-note" value="${data.note}" placeholder="..."></td>
+        `;
+        document.getElementById('tableBody').appendChild(tr);
+        
+        // Attachment: Listen for changes
+        tr.querySelectorAll('input').forEach(input => {
+            input.addEventListener('input', debounceSave);
+        });
+    }
+
+    function debounceSave() {
+        document.getElementById('save-indicator').innerText = "Saving...";
+        clearTimeout(saveTimeout);
+        saveTimeout = setTimeout(saveToStorage, 800); // Save 0.8s after typing stops
+    }
+
+    function saveToStorage() {
+        try {
+            const rows = document.querySelectorAll('#tableBody tr');
+            const dataArr = Array.from(rows).map(row => ({
+                name: row.querySelector('.s-name').value,
+                sub: row.querySelector('.s-sub').value,
+                grade: row.querySelector('.s-grade').value,
+                note: row.querySelector('.s-note').value
+            })).filter(item => item.name || item.sub); // Don't save empty rows
+
+            localStorage.setItem('hudson_grades_v1', JSON.stringify(dataArr));
+            document.getElementById('save-indicator').innerText = "✓ Changes Saved Locally";
+        } catch (e) {
+            console.error("Save Error:", e);
+            document.getElementById('save-indicator').innerText = "⚠ Save Error!";
+        }
+    }
+
+    function loadData() {
+        const raw = localStorage.getItem('hudson_grades_v1');
+        if (raw) {
+            const data = JSON.parse(raw);
+            if (data.length > 0) {
+                data.forEach(item => addRow(item));
+                return;
+            }
+        }
+        for(let i=0; i<3; i++) addRow(); // Default empty rows
+    }
+
+    function clearAll() {
+        if (confirm("This will permanently delete ALL student data. Proceed?")) {
+            localStorage.removeItem('hudson_grades_v1');
+            location.reload();
+        }
+    }
+
+    // Safety net for closing tab
+    window.onbeforeunload = () => {
+        saveToStorage();
+    };
+</script>
+
+</body>
+</html>
